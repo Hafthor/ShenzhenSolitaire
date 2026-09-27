@@ -6,74 +6,67 @@
 // Jacks, Queens and Kinds of all four suits represent the three dragons.
 // The Ten of Spades represents the Flower card.
 
-// Object: To put all the cards to the rank tableau, collect the flower and slay the dragons.
+// Object: To put all the cards to the rank stacks, collect the flower and slay the dragons.
 // Rules:
-// * you can pick up any card from the free cells, or the bottom of any column or the top of any rank tableau.
+// * you can pick up any card from the free cells, or the bottom of any column or the top of any rank stack.
 // * you can pick up multiple cards from a column if they are a chain of decreasing ranks with changing suits.
 // * you can place your card(s):
 //   * at the end of a column if it makes a chain of decreasing ranks with changing suits or,
 //   * in an empty column.
 // * you can store individual cards in the three free cells.
-// * you can add to rank tableau in ascending order with like suit.
-// * you can add place the flower in the tableau.
+// * you can add to rank stack in ascending order with like suit.
+// * you can add place the flower in its special stack.
 // * you can slay dragons (Jacks, Queens, Kings) if you:
 //   * can reach all of them (all suits at the bottom of a column or in a free cell).
 //   * would have a free cell space for the dragon's bones.
 
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 
-const string ranks = "A23456789", dragons = "JQK", suits = "shcd";
+const string ranks = "A23456789", dragons = "JQK", dragonSuits = "shcd", numberSuits = "hcd";
+const int seed = 3;
 
-// 3 free cell, tableau for flower and numbers, then 8 columns
+// three free cell, stacks for flower and numbers, then eight columns
 List<string> freeCells = new(3);
-List<string>[] tableau = [.. Enumerable.Range(0, 4).Select(i => new List<string>(i > 0 ? 9 : 1))];
-List<string>[] columns = Deal(3);
+List<string>[] stacks = [.. Enumerable.Range(0, 4).Select(i => new List<string>(i > 0 ? 9 : 1))];
+List<string>[] columns = Deal(seed);
+List<string> cmdHistory = new();
 
 for (;;) {
-    if (Display()) break;
+    if (Display()) {
+        Console.WriteLine("You win!");
+        break;
+    }
     // command is in the form "card, destination" or "quit"
     // destinations:
     // f    free cells
-    // t    tableau (it will figure it which one)
+    // s    stack (it will figure it which one)
     // 1-8  column
     string cmd = Console.ReadLine() ?? "";
     if (cmd == "quit") break;
-    if (cmd == "") {
-        List<string> plays = new();
-        for (;;) {
-            bool anyPlayed = false;
-            foreach (var p in AutoPlays())
-                if (Play(p) is null) {
-                    plays.Add($"'{p}' played.");
-                    anyPlayed = true;
-                }
-
-            if (!anyPlayed) break;
-        }
-
-        if (plays.Count == 0)
-            Console.WriteLine("No auto-plays found.");
-        else
-            foreach (var p in plays)
-                Console.WriteLine(p);
-        continue;
+    if (cmd == "undo") {
+        if (!cmdHistory.Any()) continue;
+        Console.WriteLine($"Un-did '{cmdHistory[^1]}'.");
+        cmdHistory.RemoveAt(cmdHistory.Count - 1);
+        foreach (var stack in stacks.Concat([freeCells])) stack.Clear();
+        columns = Deal(seed);
+        foreach (var hCmd in cmdHistory) Play(hCmd, false);
+    } else {
+        string err = Play(cmd);
+        if (err is not null) Console.WriteLine(err);
+        else cmdHistory.Add(cmd);
     }
-
-    string err = Play(cmd);
-    if (err is not null) Console.WriteLine(err);
 }
 
 List<string>[] Deal(int seed) {
     List<string> deck = new(3 * 9 + 4 * 3 + 1) { "Ts" }; // ten of spades is the 'flower'
-
-    foreach (var suit in suits) {
-        if (suit != 's') // no spades in numbers
-            foreach (var rank in ranks) // numbers, three suits of ace to nine
-                deck.Add($"{rank}{suit}");
+    foreach (var suit in numberSuits)
+        foreach (var rank in ranks) // numbers, three suits of ace to nine
+            deck.Add($"{rank}{suit}");
+    foreach (var suit in dragonSuits)
         foreach (var rank in dragons) // dragons (all the 'royals')
             deck.Add($"{rank}{suit}");
-    }
-
+    
     Random rnd = new(seed); // Fisher-Yates shuffle
     for (int i = deck.Count - 1; i > 0; i--) {
         int j = rnd.Next(i + 1);
@@ -91,10 +84,10 @@ bool Display() {
     for (int i = 0; i < freeCells.Capacity; i++)
         Console.Write($"{(i < freeCells.Count ? freeCells[i] : "__")} ");
     foreach (var d in dragons)
-        Console.Write(freeCells.Contains($"{d}*") ? char.ToLower(d) : d);
+        Console.Write(freeCells.Contains($"{d}*") ? d : char.ToLower(d));
 
     Console.Write(' ');
-    foreach (var t in tableau)
+    foreach (var t in stacks)
         Console.Write($" {(t.Count > 0 ? t[^1] : "__")}");
     Console.WriteLine();
 
@@ -110,16 +103,8 @@ bool Display() {
 
 int RankOf(string card) => ranks.IndexOf(card[0]) + 1;
 
-IEnumerable<string> AutoPlays() {
-    foreach (var d in dragons)
-        yield return $"{d}s t";
-    yield return "Ts t";
-    foreach (var r in ranks)
-        foreach(var s in suits[1..])
-            yield return $"{r}{s} t"; 
-}
-
-string Play(string cmd) {
+string Play(string cmd, bool display = true) {
+    if (cmd == "") return AutoPlay(display);
     if (!ValidCommandRegex().IsMatch(cmd))
         return "Bad command format.";
 
@@ -128,8 +113,30 @@ string Play(string cmd) {
     return err ?? ValidateAndMove(card, cmd[^1], cards);
 }
 
+string AutoPlay(bool display) {
+    for (bool anyFound = false;;) {
+        bool anyPlayed = false;
+        foreach (var p in AutoPlays())
+            if (Play(p) is null) {
+                if (display) Console.WriteLine($"'{p}' played.");
+                anyFound = anyPlayed = true;
+                break;
+            }
+
+        if (!anyPlayed) return anyFound ? null : "No auto-plays found.";;
+    }
+}
+
+IEnumerable<string> AutoPlays() {
+    foreach (var d in dragons + 'T')
+        yield return $"{d}s s";
+    foreach (var r in ranks)
+        foreach(var s in numberSuits)
+            yield return $"{r}{s} s"; 
+}
+
 (List<string> cards, string err) Pickup(string card, bool andRemove = false) {
-    List<string>[] sources = [freeCells, .. tableau, .. columns];
+    List<string>[] sources = [freeCells, .. stacks, .. columns];
     List<string> src = sources.FirstOrDefault(l => l.Contains(card));
     if (src is null) return (null, $"Card {card} not found.");
     bool onlyOne = src == freeCells;
@@ -149,33 +156,33 @@ string ValidateAndMove(string card, char dst, List<string> cards) {
 
         Pickup(card, true);
         freeCells.AddRange(cards);
-    } else if (dst is 't') {
+    } else if (dst is 's') {
         if (cards.Count == 1 && dragons.Contains(cards[0][0])) {
             int fc = freeCells.Count(c => card[0] == c[0]);
             if (freeCells.Count - fc >= freeCells.Capacity) return "No free cells available for the dragon's bones.";
-            var unreachable = suits.Select(s => "" + card[0] + s).Where(dc => Pickup(dc).err is not null).ToList();
+            var unreachable = dragonSuits.Select(s => "" + card[0] + s).Where(dc => Pickup(dc).err is not null).ToList();
             if (unreachable.Any())
                 return $"Cannot slay that dragon. Cannot reach {string.Join(", ", unreachable)}.";
 
-            foreach (var suit in suits)
+            foreach (var suit in dragonSuits)
                 Pickup("" + cards[0][0] + suit, true);
             freeCells.Insert(0, cards[0][0] + "*");
         } else {
             foreach (var c in cards) {
-                int si = suits.IndexOf(c[1]);
-                int next = tableau[si].Count > 0 ? RankOf(tableau[si][^1]) + 1 : si == 0 ? 10 : 1;
-                if ((ranks + "T").IndexOf(c[0]) + 1 != next) return $"Cannot place {c} on tableau.";
+                int si = dragonSuits.IndexOf(c[1]);
+                int next = stacks[si].Count > 0 ? RankOf(stacks[si][^1]) + 1 : si == 0 ? 10 : 1;
+                if ((ranks + "T").IndexOf(c[0]) + 1 != next) return $"Cannot place {c} on stack.";
             }
 
             Pickup(card, true);
             foreach (var c in cards)
-                tableau[suits.IndexOf(c[1])].Add(c);
+                stacks[dragonSuits.IndexOf(c[1])].Add(c);
         }
     } else if (dst is >= '1' and <= '8') {
         int di = dst - '1';
         if (columns[di].Count > 0)
             if (RankOf(columns[di][^1]) != RankOf(cards[0]) + 1 || cards[0][1] == columns[di][^1][1])
-                return $"Cannot lay that on a {columns[di][^1]}.";
+                return $"Cannot lay a {cards[0]} on a {columns[di][^1]}.";
 
         Pickup(card, true);
         columns[di].AddRange(cards);
@@ -186,6 +193,6 @@ string ValidateAndMove(string card, char dst, List<string> cards) {
 }
 
 partial class Program {
-    [GeneratedRegex("[ATJQK2-9][shcd] [ft1-8]")]
+    [GeneratedRegex("[ATJQK2-9][shcd] [fs1-8]")]
     private static partial Regex ValidCommandRegex();
 }
