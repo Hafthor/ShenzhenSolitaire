@@ -5,6 +5,7 @@
 // Ace to Nine for Hearts, Clubs and Diamonds are like the three suits of number cards.
 // Jacks, Queens and Kinds of all four suits represent the three dragons.
 // The Ten of Spades represents the Flower card.
+// Note that only 40 cards are used.
 
 // Object: To put all the cards to the rank stacks, collect the flower and slay the dragons.
 // Rules:
@@ -20,10 +21,16 @@
 //   * can reach all of them (all suits at the bottom of a column or in a free cell).
 //   * would have a free cell space for the dragon's bones.
 
-using System.Diagnostics;
+//          123456789
+// Craks..: 🀇🀈🀉🀊🀋🀌🀍🀎🀏  Hearts   A-9
+// Bams...: 🀐🀑🀒🀓🀔🀕🀖🀗🀘  Clubs    A-9
+// Dots...: 🀙🀚🀛🀜🀝🀞🀟🀠🀡  Diamonds A-9
+// Dragons: 🀄🀅🀆         Jacks, Queens, Kings
+// Flower.: 🌸           Ten of Spades
+
 using System.Text.RegularExpressions;
 
-const string ranks = "A23456789", dragons = "JQK", dragonSuits = "shcd", numberSuits = "hcd";
+const string ranks = "A23456789", dragons = "JQK", suits = "shcd", numberSuits = "hcd";
 const int seed = 3;
 
 // three free cell, stacks for flower and numbers, then eight columns
@@ -35,6 +42,7 @@ List<string> cmdHistory = new();
 for (;;) {
     if (Display()) {
         Console.WriteLine("You win!");
+        Console.WriteLine($"Seed: {seed}, History: {string.Join(",", cmdHistory)}.");
         break;
     }
     // command is in the form "card, destination" or "quit"
@@ -43,8 +51,8 @@ for (;;) {
     // s    stack (it will figure it which one)
     // 1-8  column
     string cmd = Console.ReadLine() ?? "";
-    if (cmd == "quit") break;
-    if (cmd == "undo") {
+    if (cmd is "quit") break;
+    if (cmd is "undo") {
         if (!cmdHistory.Any()) continue;
         Console.WriteLine($"Un-did '{cmdHistory[^1]}'.");
         cmdHistory.RemoveAt(cmdHistory.Count - 1);
@@ -63,17 +71,19 @@ List<string>[] Deal(int seed) {
     foreach (var suit in numberSuits)
         foreach (var rank in ranks) // numbers, three suits of ace to nine
             deck.Add($"{rank}{suit}");
-    foreach (var suit in dragonSuits)
+    foreach (var suit in suits)
         foreach (var rank in dragons) // dragons (all the 'royals')
             deck.Add($"{rank}{suit}");
-    
-    Random rnd = new(seed); // Fisher-Yates shuffle
-    for (int i = deck.Count - 1; i > 0; i--) {
-        int j = rnd.Next(i + 1);
-        (deck[i], deck[j]) = (deck[j], deck[i]);
-    }
 
+    Shuffle(deck, new(seed));
     return [.. Enumerable.Range(0, 8).Select(i => new List<string>(deck[(i * 5)..(i * 5 + 5)]))];
+}
+
+void Shuffle<T>(IList<T> list, Random r) { // Fisher-Yates shuffle
+    for (int i = list.Count - 1; i > 0; i--) {
+        int j = r.Next(i + 1);
+        (list[i], list[j]) = (list[j], list[i]);
+    }
 }
 
 bool Display() {
@@ -94,20 +104,16 @@ bool Display() {
     int lines = columns.Max(c => c.Count);
     for (int l = 0; l < lines; l++) {
         foreach (var c in columns)
-            Console.Write($" {(l < c.Count ? c[l] : l == 0 ? "__" : "  ")}");
+            Console.Write($" {(l < c.Count ? c[l] : l is 0 ? "__" : "  ")}");
         Console.WriteLine();
     }
 
-    return lines == 0;
+    return lines is 0;
 }
 
-int RankOf(string card) => ranks.IndexOf(card[0]) + 1;
-
 string Play(string cmd, bool display = true) {
-    if (cmd == "") return AutoPlay(display);
-    if (!ValidCommandRegex().IsMatch(cmd))
-        return "Bad command format.";
-
+    if (cmd is "") return AutoPlay(display);
+    if (!ValidCommandRegex().IsMatch(cmd)) return "Bad command format.";
     string card = cmd[..2];
     var (cards, err) = Pickup(card);
     return err ?? ValidateAndMove(card, cmd[^1], cards);
@@ -123,7 +129,7 @@ string AutoPlay(bool display) {
                 break;
             }
 
-        if (!anyPlayed) return anyFound ? null : "No auto-plays found.";;
+        if (!anyPlayed) return anyFound ? null : "No auto-plays found.";
     }
 }
 
@@ -139,53 +145,47 @@ IEnumerable<string> AutoPlays() {
     List<string>[] sources = [freeCells, .. stacks, .. columns];
     List<string> src = sources.FirstOrDefault(l => l.Contains(card));
     if (src is null) return (null, $"Card {card} not found.");
-    bool onlyOne = src == freeCells;
-    int index = src.IndexOf(card);
-    int limit = onlyOne ? index + 1 : src.Count;
+    int index = src.IndexOf(card), limit = src == freeCells ? index + 1 : src.Count;
     for (int i = index + 1; i < limit; i++)
-        if (RankOf(src[i - 1]) - 1 != RankOf(src[i]) || src[i][1] == src[i - 1][1])
+        if (ranks.IndexOf(src[i - 1][0]) - 1 != ranks.IndexOf(src[i][0]) || src[i][1] == src[i - 1][1])
             return (null, $"Cannot pick up stack starting from {card}. Blocked at {src[i]} vs {src[i - 1]}.");
-    List<string> r = new(src[index..limit]);
+    var cards = src.Slice(index, limit - index);
     if (andRemove) src.RemoveRange(index, limit - index);
-    return (r, null);
+    return (cards, null);
 }
 
-string ValidateAndMove(string card, char dst, List<string> cards) {
-    if (dst is 'f') {
+string ValidateAndMove(string card, char dest, List<string> cards) {
+    if (dest is 'f') {
         if (freeCells.Count + cards.Count > freeCells.Capacity) return "Not enough free cells.";
-
         Pickup(card, true);
         freeCells.AddRange(cards);
-    } else if (dst is 's') {
-        if (cards.Count == 1 && dragons.Contains(cards[0][0])) {
-            int fc = freeCells.Count(c => card[0] == c[0]);
-            if (freeCells.Count - fc >= freeCells.Capacity) return "No free cells available for the dragon's bones.";
-            var unreachable = dragonSuits.Select(s => "" + card[0] + s).Where(dc => Pickup(dc).err is not null).ToList();
-            if (unreachable.Any())
-                return $"Cannot slay that dragon. Cannot reach {string.Join(", ", unreachable)}.";
-
-            foreach (var suit in dragonSuits)
+    } else if (dest is 's') {
+        if (cards.Count is 1 && dragons.Contains(cards[0][0])) {
+            int used = freeCells.Count - freeCells.Count(c => card[0] == c[0]);
+            if (used >= freeCells.Capacity) return "No free cells available for the dragon's bones.";
+            var unreachable = suits.Select(s => "" + card[0] + s).Where(dc => Pickup(dc).err is not null).ToList();
+            if (unreachable.Any()) return $"Cannot slay that dragon. Cannot reach {string.Join(", ", unreachable)}.";
+            foreach (var suit in suits)
                 Pickup("" + cards[0][0] + suit, true);
             freeCells.Insert(0, cards[0][0] + "*");
         } else {
             foreach (var c in cards) {
-                int si = dragonSuits.IndexOf(c[1]);
-                int next = stacks[si].Count > 0 ? RankOf(stacks[si][^1]) + 1 : si == 0 ? 10 : 1;
+                int si = suits.IndexOf(c[1]);
+                int next = stacks[si].Count > 0 ? ranks.IndexOf(stacks[si][^1][0]) + 2 : si is 0 ? 10 : 1;
                 if ((ranks + "T").IndexOf(c[0]) + 1 != next) return $"Cannot place {c} on stack.";
             }
 
             Pickup(card, true);
             foreach (var c in cards)
-                stacks[dragonSuits.IndexOf(c[1])].Add(c);
+                stacks[suits.IndexOf(c[1])].Add(c);
         }
-    } else if (dst is >= '1' and <= '8') {
-        int di = dst - '1';
-        if (columns[di].Count > 0)
-            if (RankOf(columns[di][^1]) != RankOf(cards[0]) + 1 || cards[0][1] == columns[di][^1][1])
-                return $"Cannot lay a {cards[0]} on a {columns[di][^1]}.";
+    } else if (dest is >= '1' and <= '8') {
+        var d = columns[dest - '1'];
+        if (d.Count > 0 && (ranks.IndexOf(d[^1][0]) != ranks.IndexOf(cards[0][0]) + 1 || cards[0][1] == d[^1][1]))
+            return $"Cannot lay a {cards[0]} on a {d[^1]}.";
 
         Pickup(card, true);
-        columns[di].AddRange(cards);
+        d.AddRange(cards);
     } else
         return "Unknown destination.";
 
