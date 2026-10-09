@@ -31,7 +31,7 @@
 using System.Text.RegularExpressions;
 
 const string ranks = "A23456789", dragons = "JQK", suits = "shcd", numberSuits = "hcd";
-const int seed = 3;
+const int seed = 4;
 
 // three free cell, stacks for flower and numbers, then eight columns
 List<string> freeCells = new(3);
@@ -194,10 +194,10 @@ string ValidateAndMove(string card, char dest, List<string> cards) {
 }
 
 partial class Program {
-    [GeneratedRegex("[ATJQK2-9][shcd] [fs1-8]")]
+    [GeneratedRegex("^[ATJQK2-9][shcd] [fs1-8]$")]
     private static partial Regex ValidCommandRegex();
     
-    [GeneratedRegex("[ATJQK2-9][shcd]")]
+    [GeneratedRegex("^[ATJQK2-9][shcd]$")]
     private static partial Regex StackDefaultCommandRegex();
 
 }
