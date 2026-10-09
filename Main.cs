@@ -113,6 +113,7 @@ bool Display() {
 
 string Play(string cmd, bool display = true) {
     if (cmd is "") return AutoPlay(display);
+    if (StackDefaultCommandRegex().IsMatch(cmd)) cmd += " s";
     if (!ValidCommandRegex().IsMatch(cmd)) return "Bad command format.";
     string card = cmd[..2];
     var (cards, err) = Pickup(card);
@@ -195,4 +196,8 @@ string ValidateAndMove(string card, char dest, List<string> cards) {
 partial class Program {
     [GeneratedRegex("[ATJQK2-9][shcd] [fs1-8]")]
     private static partial Regex ValidCommandRegex();
+    
+    [GeneratedRegex("[ATJQK2-9][shcd]")]
+    private static partial Regex StackDefaultCommandRegex();
+
 }
